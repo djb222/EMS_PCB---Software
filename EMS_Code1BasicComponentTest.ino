@@ -11,7 +11,7 @@ const int button1Pin    = 8;  // Mode/Select
 const int button2Pin    = 9;  // Reset/Confirm
 
 // System modes
-enum Mode { NORMAL, SETUP, COUNTDOWN };
+enum Mode { NORMAL, SETUP, COUNTDOWN, RESULTS};
 Mode currentMode = NORMAL;
 
 // Distance tracking
@@ -19,6 +19,9 @@ const float STEP_LENGTH = 0.7; // Average meters per step
 const int distanceOptions[3] = {500, 1000, 2000};
 int selectedDistanceIndex = 0;
 float remainingDistance = 0;
+unsigned long countdownStartTime = 0;
+unsigned long totalTime = 0;
+float averagePace = 0; // minutes per kilometer
 
 // Step simulation and pace tracking
 enum PaceState { STATIONARY, WALKING, RUNNING };
@@ -155,6 +158,7 @@ void handleShortPress() {
 
 void handleButton2() {
   switch(currentMode) {
+    case RESULTS: //ADD RESET FROM RESULTS MODE
     case NORMAL:
       resetSystem();
       break;
@@ -177,6 +181,7 @@ void startCountdown() {
   currentMode = COUNTDOWN;
   remainingDistance = distanceOptions[selectedDistanceIndex];
   stepCount = 0;
+  countdownStartTime = millis();  // <-- RECORD START TIME
   lcd.clear();
 }
 
@@ -209,12 +214,26 @@ void detectSteps(unsigned long currentTime) {
     stepCount++;
     if (currentMode == COUNTDOWN) {
       remainingDistance = max(0.0, remainingDistance - STEP_LENGTH);
+      
+      // Check if goal reached
+      if (remainingDistance <= 0) {
+        totalTime = (currentTime - countdownStartTime) / 1000; // in seconds
+        calculateAveragePace();
+        currentMode = RESULTS;
+        lcd.clear();
+      }
     }
     lastStepTime = currentTime;
   }
   if (simulatedAccel < stepThreshold) {
     aboveThreshold = false;
   }
+}
+
+void calculateAveragePace() {
+  float distanceKm = distanceOptions[selectedDistanceIndex] / 1000.0;
+  float timeHours = totalTime / 3600.0;
+  averagePace = (timeHours / distanceKm) * 60; // minutes per kilometer
 }
 
 void changeState() {
@@ -240,6 +259,9 @@ void updateDisplay() {
       break;
     case COUNTDOWN:
       displayCountdownMode();
+      break;
+    case RESULTS:
+      displayResultsMode();
       break;
     default:
       break;
@@ -286,6 +308,21 @@ void updateLEDs() {
   digitalWrite(walkingLED,    currentPace == WALKING    ? HIGH : LOW);
   digitalWrite(runningLED,    currentPace == RUNNING    ? HIGH : LOW);
 }
+
+void displayResultsMode() {
+  lcd.setCursor(0, 0);
+  lcd.print("Time: ");
+  lcd.print(totalTime / 60);
+  lcd.print("m ");
+  lcd.print(totalTime % 60);
+  lcd.print("s");
+  
+  lcd.setCursor(0, 1);
+  lcd.print("Pace: ");
+  lcd.print(averagePace, 1);
+  lcd.print(" min/km");
+}
+
 
 // --- System Control ---
 void resetSystem() {
