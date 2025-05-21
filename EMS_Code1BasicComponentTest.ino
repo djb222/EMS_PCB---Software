@@ -7,23 +7,25 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 const int stationaryLED = 5;
 const int walkingLED    = 6;
 const int runningLED    = 7;
-const int button1Pin    = 8;  // Mode/Select
-const int button2Pin    = 9;  // Reset/Confirm
+const int button1Pin    = 8;  // Single menu/mode button
 
-// System modes
-enum Mode { NORMAL, SETUP, COUNTDOWN, RESULTS};
-Mode currentMode = NORMAL;
+// Modes and menu
+enum Mode { MENU, NORMAL, STEP_GOAL, CALIBRATION, SELF_TEST, COUNTDOWN, RESULTS };
+Mode currentMode = MENU;
 
-// Distance tracking
-const float STEP_LENGTH = 0.7; // Average meters per step
-const int distanceOptions[3] = {500, 1000, 2000};
-int selectedDistanceIndex = 0;
-float remainingDistance = 0;
-unsigned long countdownStartTime = 0;
-unsigned long totalTime = 0;
-float averagePace = 0; // minutes per kilometer
+const int menuItems = 4;
+const char* menuLabels[menuItems] = {
+  "Step Counter",
+  "Step Goal",
+  "Calibration",
+  "Self-Test"
+};
+int menuIndex = 0;
+const int stepGoalOptions[3] = {500, 1000, 2000};
+int selectedStepGoalIndex = 0;
+int stepGoal = 0;
 
-// Step simulation and pace tracking
+// Step tracking and pace
 enum PaceState { STATIONARY, WALKING, RUNNING };
 PaceState currentPace = STATIONARY;
 unsigned long lastStepTime = 0;
@@ -42,38 +44,46 @@ unsigned long stateDuration = 0;
 const unsigned long LONG_PRESS_TIME = 1000;
 unsigned long buttonPressStart = 0;
 bool button1Active = false;
-bool button2Active = false;
+
+// Results
+unsigned long countdownStartTime = 0;
+unsigned long totalTime = 0;
+float averagePace = 0;
 
 // Function Prototypes
+void handleMenuButton(unsigned long currentTime);
+void selectMenuItem();
+void updateMenuDisplay();
 void handleButtons(unsigned long currentTime);
 void handleLongPress();
 void handleShortPress();
-void handleButton2();
-void enterSetupMode();
-void startCountdown();
-void cancelCountdown();
-void cycleDistanceOptions();
 void generateSensorData(unsigned long currentTime);
 void detectSteps(unsigned long currentTime);
 void changeState();
 void updateDisplay();
 void displayNormalMode();
-void displaySetupMode();
+void displayStepGoalMode();
+void displaySetupGoalMenu();
+void displayCalibrationMode();
+void displaySelfTestMode();
 void displayCountdownMode();
+void displayResultsMode();
 void updateLEDs();
 void resetSystem();
+void calculateAveragePace();
 
 void setup() {
   pinMode(stationaryLED, OUTPUT);
   pinMode(walkingLED, OUTPUT);
   pinMode(runningLED, OUTPUT);
   pinMode(button1Pin, INPUT);
-  pinMode(button2Pin, INPUT);
 
   lcd.init();
   lcd.backlight();
   randomSeed(analogRead(A0));
-  changeState();
+  currentMode = MENU;
+  menuIndex = 0;
+  updateMenuDisplay();
 }
 
 void loop() {
@@ -81,15 +91,17 @@ void loop() {
   static unsigned long lastLCDUpdate = 0;
   static unsigned long lastSimTime = 0;
 
+  if (currentMode == MENU) {
+    handleMenuButton(currentTime);
+    return;
+  }
+
   handleButtons(currentTime);
-  
-  if (currentMode == NORMAL || currentMode == COUNTDOWN) {
-    // Update pace state machine
+
+  if (currentMode == NORMAL || currentMode == STEP_GOAL || currentMode == COUNTDOWN) {
     if (currentTime - lastStateChange > stateDuration) {
       changeState();
     }
-    
-    // Generate simulated sensor data at 50Hz
     if (currentTime - lastSimTime > 20) {
       lastSimTime = currentTime;
       generateSensorData(currentTime);
@@ -97,7 +109,6 @@ void loop() {
     }
   }
 
-  // Update display every 200ms
   if (currentTime - lastLCDUpdate > 200) {
     updateDisplay();
     updateLEDs();
@@ -105,97 +116,107 @@ void loop() {
   }
 }
 
-// --- Button Handling ---
-void handleButtons(unsigned long currentTime) {
-  // Handle Button 1 (Mode/Select)
+// --- MENU HANDLING ---
+void handleMenuButton(unsigned long currentTime) {
+  static bool buttonActive = false;
+  static unsigned long buttonPressStart = 0;
+
   if (digitalRead(button1Pin) == HIGH) {
-    if (!button1Active) {
+    if (!buttonActive) {
       buttonPressStart = currentTime;
-      button1Active = true;
+      buttonActive = true;
     }
-    // Long press detection
     if (currentTime - buttonPressStart > LONG_PRESS_TIME) {
-      handleLongPress();
-      button1Active = false; // Prevent retriggering
+      selectMenuItem();
+      buttonActive = false;
     }
   } else {
-    if (button1Active) {
-      handleShortPress();
-      button1Active = false;
+    if (buttonActive) {
+      // Short press: go to next menu item
+      menuIndex = (menuIndex + 1) % menuItems;
+      updateMenuDisplay();
+      buttonActive = false;
     }
   }
-
-  // Handle Button 2 (Reset/Confirm)
-  if (digitalRead(button2Pin) == HIGH) {
-    if (!button2Active) {
-      handleButton2();
-      button2Active = true;
-    }
-  } else {
-    button2Active = false;
-  }
 }
 
-void handleLongPress() {
-  switch(currentMode) {
-    case NORMAL:
-      enterSetupMode();
+void selectMenuItem() {
+  lcd.clear();
+  switch(menuIndex) {
+    case 0:
+      currentMode = NORMAL;
+      stepCount = 0;
       break;
-    case SETUP:
-      startCountdown();
+    case 1:
+      currentMode = STEP_GOAL;
+      selectedStepGoalIndex = 0;
+      stepGoal = stepGoalOptions[selectedStepGoalIndex];
+      stepCount = 0;
+      lcd.clear();
+      lcd.print("Goal: ");
+      lcd.print(stepGoal);
+      lcd.print(" steps");
+      delay(1000);
       break;
-    default:
-      break;
-  }
-}
-
-void handleShortPress() {
-  if (currentMode == SETUP) {
-    cycleDistanceOptions();
-    updateDisplay(); // Immediate feedback
-  }
-}
-
-void handleButton2() {
-  switch(currentMode) {
-    case RESULTS: //ADD RESET FROM RESULTS MODE
-    case NORMAL:
+    case 2:
+      currentMode = CALIBRATION;
+      lcd.clear();
+      lcd.print("Calibration...");
+      delay(1500);
       resetSystem();
       break;
-    case COUNTDOWN:
-      cancelCountdown();
-      break;
-    default:
+    case 3:
+      currentMode = SELF_TEST;
+      lcd.clear();
+      lcd.print("Self-Test...");
+      delay(1500);
+      resetSystem();
       break;
   }
 }
 
-// --- Mode Transitions ---
-void enterSetupMode() {
-  currentMode = SETUP;
-  selectedDistanceIndex = 0;
+void updateMenuDisplay() {
   lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Select Mode:");
+  lcd.setCursor(0, 1);
+  lcd.print(menuLabels[menuIndex]);
 }
 
-void startCountdown() {
-  currentMode = COUNTDOWN;
-  remainingDistance = distanceOptions[selectedDistanceIndex];
-  stepCount = 0;
-  countdownStartTime = millis();  // <-- RECORD START TIME
-  lcd.clear();
+// --- BUTTON HANDLING FOR OTHER MODES ---
+void handleButtons(unsigned long currentTime) {
+  static bool buttonActive = false;
+  static unsigned long buttonPressStart = 0;
+
+  if (digitalRead(button1Pin) == HIGH) {
+    if (!buttonActive) {
+      buttonPressStart = currentTime;
+      buttonActive = true;
+    }
+    if (currentMode == STEP_GOAL && (currentTime - buttonPressStart > LONG_PRESS_TIME)) {
+      // Long press to confirm step goal selection and start countdown
+      currentMode = COUNTDOWN;
+      countdownStartTime = millis();
+      lcd.clear();
+      buttonActive = false;
+    }
+    if (currentMode == STEP_GOAL && (currentTime - buttonPressStart > 200) && (currentTime - buttonPressStart < LONG_PRESS_TIME)) {
+      // Short press to cycle step goal options
+      selectedStepGoalIndex = (selectedStepGoalIndex + 1) % 3;
+      stepGoal = stepGoalOptions[selectedStepGoalIndex];
+      lcd.clear();
+      lcd.print("Goal: ");
+      lcd.print(stepGoal);
+      lcd.print(" steps");
+      delay(500);
+      buttonActive = false;
+    }
+  } else {
+    buttonActive = false;
+  }
 }
 
-void cancelCountdown() {
-  currentMode = NORMAL;
-  remainingDistance = 0;
-  lcd.clear();
-}
-
-void cycleDistanceOptions() {
-  selectedDistanceIndex = (selectedDistanceIndex + 1) % 3;
-}
-
-// --- Core Logic ---
+// --- STEP SIMULATION AND DETECTION ---
 void generateSensorData(unsigned long currentTime) {
   float freq = 0.0;
   switch(currentPace) {
@@ -203,20 +224,16 @@ void generateSensorData(unsigned long currentTime) {
     case RUNNING: freq = 3.0; break;
     default: freq = 0.0;
   }
-  
   simulatedAccel = (freq > 0) ? sin(2 * PI * freq * (currentTime / 1000.0)) : 0;
-  simulatedAccel += random(-10, 10) / 100.0; // Add noise
+  simulatedAccel += random(-10, 10) / 100.0;
 }
 
 void detectSteps(unsigned long currentTime) {
   if (simulatedAccel > stepThreshold && !aboveThreshold) {
     aboveThreshold = true;
     stepCount++;
-    if (currentMode == COUNTDOWN) {
-      remainingDistance = max(0.0, remainingDistance - STEP_LENGTH);
-      
-      // Check if goal reached
-      if (remainingDistance <= 0) {
+    if (currentMode == COUNTDOWN && stepGoal > 0) {
+      if (stepCount >= stepGoal) {
         totalTime = (currentTime - countdownStartTime) / 1000; // in seconds
         calculateAveragePace();
         currentMode = RESULTS;
@@ -231,31 +248,29 @@ void detectSteps(unsigned long currentTime) {
 }
 
 void calculateAveragePace() {
-  float distanceKm = distanceOptions[selectedDistanceIndex] / 1000.0;
-  float timeHours = totalTime / 3600.0;
-  averagePace = (timeHours / distanceKm) * 60; // minutes per kilometer
+  float timeMinutes = totalTime / 60.0;
+  averagePace = (stepGoal > 0) ? (timeMinutes / (stepGoal / 1000.0)) : 0; // min per 1000 steps
 }
 
+// --- STATE MACHINE FOR PACE ---
 void changeState() {
   int randNum = random(100);
   if (randNum < 10) currentPace = RUNNING;
   else if (randNum < 70) currentPace = WALKING;
   else currentPace = STATIONARY;
-
   stateDuration = random(minStateDuration, maxStateDuration);
   lastStateChange = millis();
 }
 
-// --- Display Updates ---
+// --- DISPLAY UPDATES ---
 void updateDisplay() {
   lcd.clear();
-  
   switch(currentMode) {
     case NORMAL:
       displayNormalMode();
       break;
-    case SETUP:
-      displaySetupMode();
+    case STEP_GOAL:
+      displaySetupGoalMenu();
       break;
     case COUNTDOWN:
       displayCountdownMode();
@@ -272,7 +287,6 @@ void displayNormalMode() {
   lcd.setCursor(0, 0);
   lcd.print("Steps: ");
   lcd.print(stepCount);
-  
   lcd.setCursor(0, 1);
   lcd.print("Pace: ");
   switch(currentPace) {
@@ -282,31 +296,22 @@ void displayNormalMode() {
   }
 }
 
-void displaySetupMode() {
+void displaySetupGoalMenu() {
   lcd.setCursor(0, 0);
-  lcd.print("Set Distance Goal:");
-  
+  lcd.print("Set Step Goal:");
   lcd.setCursor(0, 1);
-  lcd.print(distanceOptions[selectedDistanceIndex]);
-  lcd.print(" meters");
+  lcd.print(stepGoalOptions[selectedStepGoalIndex]);
+  lcd.print(" steps");
 }
 
 void displayCountdownMode() {
   lcd.setCursor(0, 0);
   lcd.print("Goal: ");
-  lcd.print(distanceOptions[selectedDistanceIndex]);
-  lcd.print("m");
-  
+  lcd.print(stepGoal);
+  lcd.print(" steps");
   lcd.setCursor(0, 1);
-  lcd.print("Left: ");
-  lcd.print((int)remainingDistance);
-  lcd.print("m");
-}
-
-void updateLEDs() {
-  digitalWrite(stationaryLED, currentPace == STATIONARY ? HIGH : LOW);
-  digitalWrite(walkingLED,    currentPace == WALKING    ? HIGH : LOW);
-  digitalWrite(runningLED,    currentPace == RUNNING    ? HIGH : LOW);
+  lcd.print("Count: ");
+  lcd.print(stepCount);
 }
 
 void displayResultsMode() {
@@ -316,18 +321,23 @@ void displayResultsMode() {
   lcd.print("m ");
   lcd.print(totalTime % 60);
   lcd.print("s");
-  
   lcd.setCursor(0, 1);
   lcd.print("Pace: ");
   lcd.print(averagePace, 1);
-  lcd.print(" min/km");
+  lcd.print(" min/1k");
 }
 
+// --- LED UPDATES ---
+void updateLEDs() {
+  digitalWrite(stationaryLED, currentPace == STATIONARY ? HIGH : LOW);
+  digitalWrite(walkingLED,    currentPace == WALKING    ? HIGH : LOW);
+  digitalWrite(runningLED,    currentPace == RUNNING    ? HIGH : LOW);
+}
 
-// --- System Control ---
+// --- SYSTEM CONTROL ---
 void resetSystem() {
   stepCount = 0;
-  remainingDistance = 0;
-  currentMode = NORMAL;
-  lcd.clear();
+  currentMode = MENU;
+  menuIndex = 0;
+  updateMenuDisplay();
 }
