@@ -1,60 +1,56 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
-#include <math.h>
 
-// LCD setup (adjust address if needed)
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-// Analog pins for ADXL335
-const int xPin = A0; // Connect Xout to A0
-const int yPin = A1; // Connect Yout to A1
-const int zPin = A2; // Connect Zout to A2
+const int xPin = A0;
+const int yPin = A1;
+const int zPin = A2;
+
+// Constants for 3.3V ADXL335 with 5V Arduino reference
+const float arduinoVref = 5.0;        // Arduino's analog reference (5V)
+const float adxlSupply = 3.3;         // ADXL335 supply voltage
+const float zeroG = adxlSupply / 2.0;  // 1.65V for 3.3V supply
+const float sensitivity = 0.33;       // 0.33V/g
 
 void setup() {
+  // No analogReference() call - use default 5V reference
   lcd.init();
   lcd.backlight();
   Serial.begin(9600);
 }
 
 void loop() {
-  // Read analog values (0-1023)
   int xRaw = analogRead(xPin);
   int yRaw = analogRead(yPin);
   int zRaw = analogRead(zPin);
 
-  double x_g_value, y_g_value, z_g_value;
+  // Convert to actual voltage (accounting for 5V reference)
+  float xVolt = (xRaw * arduinoVref) / 1023.0;
+  float yVolt = (yRaw * arduinoVref) / 1023.0;
+  float zVolt = (zRaw * arduinoVref) / 1023.0;
 
-  // Convert to voltage (for 5V Arduino)
-  float xVolt = ( ( ( (double)(xRaw * 5)/1024) - 1.65 ) / 0.330 ); /* Acceleration in x-direction in g units */
-  float yVolt = ( ( ( (double)(yRaw * 5)/1024) - 1.65 ) / 0.330 ); /* Acceleration in y-direction in g units */
-  float zVolt = ( ( ( (double)(zRaw * 5)/1024) - 1.80 ) / 0.330 ); /* Acceleration in z-direction in g units */
+  // Convert to acceleration (g)
+  float x_g = (xVolt - zeroG) / sensitivity;
+  float y_g = (yVolt - zeroG) / sensitivity;
+  float z_g = (zVolt - zeroG) / sensitivity;
 
-  // double roll = ( ( (atan2(y_g_value,z_g_value) * 180) / 3.14 ) + 180 ); /* Formula for roll */
-  // double pitch = ( ( (atan2(z_g_value,x_g_value) * 180) / 3.14 ) + 180 ); /* Formula for pitch */
-  // Display on LCD
- lcd.setCursor(0, 0);
+  lcd.setCursor(0, 0);
   lcd.print("X:");
-  lcd.print(xVolt, 2);
+  lcd.print(x_g, 2);
   lcd.print(" Y:");
-  lcd.print(yVolt, 2);
+  lcd.print(y_g, 2);
 
   lcd.setCursor(0, 1);
   lcd.print("Z:");
-  lcd.print(zVolt, 2);
- lcd.print("V        "); // Clear remainder
+  lcd.print(z_g, 2);
+  lcd.print("g        ");
 
-  // lcd.setCursor(0, 0);
-  // lcd.print("ygVal: ");
-  // lcd.print(y_g_value, 2);
-  // lcd.setCursor(0,1);
-  // lcd.print("xgVal: ");
-  // lcd.print(x_g_value, 2);
+  delay(500);
 
+  // Add this to your loop() to see actual voltages
+  Serial.print("X voltage: "); Serial.print(xVolt, 3); Serial.print("V, ");
+  Serial.print("Y voltage: "); Serial.print(yVolt, 3); Serial.print("V, ");
+  Serial.print("Z voltage: "); Serial.print(zVolt, 3); Serial.println("V");
 
-  // Optional: Print to Serial Monitor
-  //Serial.print("X: "); Serial.print(xVolt, 2); Serial.print(" V, ");
-  //Serial.print("Y: "); Serial.print(yVolt, 2); Serial.print(" V, ");
-  //Serial.print("Z: "); Serial.print(zVolt, 2); Serial.println(" V");
-
-  delay(500); // Update twice per second
 }
