@@ -38,10 +38,11 @@ const int zPin = A2;
 const int stPin = 9; // Self-test pin
 
 // Threshold and calibration variables - FROM WALKING CODE
-float threshold = 0.5;        // Adjust this based on testing
+float threshold = 1.15;        // Adjust this based on testing
 float xRest = 2.586;          // Use your measured rest values
 float yRest = 4.066;
 float zRest = 4.995;
+
 
 // Step counting variables - FROM WALKING CODE
 bool stepDetected = false;
@@ -236,19 +237,20 @@ void detectSteps(unsigned long currentTime) {
   float x_g = readAxisG(xPin);
   float y_g = readAxisG(yPin);
   float z_g = readAxisG(zPin);
-  
-  // Calculate acceleration magnitude relative to rest position
-  float magnitude = sqrt(pow(x_g - xRest, 2) + 
-                        pow(y_g - yRest, 2) + 
-                        pow(z_g - zRest, 2));
-  
-  // Step detection logic - FROM WALKING CODE
-  if (magnitude > threshold && !stepDetected && 
+  float magRest = 13.7;
+
+  // Calculate raw magnitude
+  float magnitude = sqrt(x_g * x_g + y_g * y_g + z_g * z_g);
+
+  // Step detection logic based on rest magnitude
+  float stepThreshold = magRest + 0.15; // Adjust 0.15 as needed after testing
+
+  if (magnitude > stepThreshold && !stepDetected &&
       (currentTime - lastStepTime > minStepInterval)) {
     stepCount++;
     stepDetected = true;
     lastStepTime = currentTime;
-    
+
     // Check if goal reached in countdown mode
     if (currentMode == COUNTDOWN && stepGoal > 0) {
       if (stepCount >= stepGoal) {
@@ -259,12 +261,12 @@ void detectSteps(unsigned long currentTime) {
       }
     }
   }
-  
-  // Reset step detection when magnitude drops below threshold
-  if (magnitude < (threshold * 0.7)) {
+
+  // Reset step detection when magnitude drops back near rest
+  if (magnitude < magRest + 0.05) { // 0.05 is a small buffer, adjust as needed
     stepDetected = false;
   }
-  
+
   // Debug output
   Serial.print("Mag: "); Serial.print(magnitude, 3);
   Serial.print(" | Steps: "); Serial.println(stepCount);
@@ -445,4 +447,3 @@ void resetSystem() {
   menuIndex = 0;
   updateMenuDisplay();
 }
-
