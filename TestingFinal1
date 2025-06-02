@@ -303,23 +303,53 @@ float readAxisG(int pin) {
 }
 
 void calibrateRest() {
-  float xSum = 0, ySum = 0, zSum = 0;
+  float xSum = 0, ySum = 0, zSum = 0, magSum = 0;
   const int samples = 50;
-  
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Calibrating...");
+  lcd.setCursor(0, 1);
+  lcd.print("Keep still!");
+
+  Serial.println("Calibration: Please keep device still...");
+
   for (int i = 0; i < samples; i++) {
-    xSum += readAxisG(xPin);
-    ySum += readAxisG(yPin);
-    zSum += readAxisG(zPin);
+    float x_g = readAxisG(xPin);
+    float y_g = readAxisG(yPin);
+    float z_g = readAxisG(zPin);
+    float mag = sqrt(x_g * x_g + y_g * y_g + z_g * z_g);
+
+    xSum += x_g;
+    ySum += y_g;
+    zSum += z_g;
+    magSum += mag;
     delay(20);
   }
-  
+
   xRest = xSum / samples;
   yRest = ySum / samples;
   zRest = zSum / samples;
-  
+  magRest = magSum / samples;
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("X:");
+  lcd.print(xRest, 2);
+  lcd.print(" Y:");
+  lcd.print(yRest, 2);
+  lcd.setCursor(0, 1);
+  lcd.print("Z:");
+  lcd.print(zRest, 2);
+  lcd.print(" M:");
+  lcd.print(magRest, 2);
+
   Serial.print("Calibrated rest values - X: "); Serial.print(xRest, 3);
   Serial.print(" Y: "); Serial.print(yRest, 3);
-  Serial.print(" Z: "); Serial.println(zRest, 3);
+  Serial.print(" Z: "); Serial.print(zRest, 3);
+  Serial.print(" | magRest: "); Serial.println(magRest, 3);
+
+  delay(2500); // Show on LCD for 2.5 seconds
 }
 
 // --- SELF-TEST ROUTINE ---
